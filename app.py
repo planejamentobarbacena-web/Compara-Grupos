@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import unicodedata
 
 st.set_page_config(
     page_title="Validador de Credores – PCASP",
@@ -18,111 +19,145 @@ uploaded_file = st.file_uploader(
     type=["csv"]
 )
 
-# ======================================================
-# PROCESSAMENTO COMEÇA AQUI
-# ======================================================
+# -----------------------------
+# Funções auxiliares
+# -----------------------------
+def normalizar_coluna(col):
+    col = col.strip().lower()
+    col = unicodedata.normalize("NFKD", col)
+    col = col.encode("ascii", errors="ignore").decode("utf-8")
+    return col
+
+def localizar_coluna(df, palavras):
+    for col in df.columns:
+        for p in palavras:
+            if p in col:
+                return col
+    return None
+
+# -----------------------------
+# Processamento
+# -----------------------------
 if uploaded_file:
 
-    # --- Leitura robusta do CSV ---
-    df = pd.read_csv(
-        uploaded_file,
-        sep=";",
-        decimal=",",
-        encoding="latin1",
-        engine="python"
-    )
+    # leitura segura do CSV
+    try:
+        df = pd.read_csv(
+            uploaded_file,
+            sep=";",
+            decimal=",",
+            encoding="latin1",
+            engine="python"
+        )
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}")
+        st.stop()
 
-    # --- Normalização dos nomes das colunas ---
-    df.columns = (
-        df.columns
-        .str.strip()
-        .str.lower()
-        .str.normalize("NFKD")
-        .str.encode("ascii", errors="ignore")
-        .str.decode("utf-8")
-    )
+    # normaliza nomes de colunas
+    df.columns = [normalizar_coluna(c) for c in df.columns]
 
-    # --- Mapeamento de colunas esperadas ---
-    col_mascara = "mascara"
-    col_desc = "descricao"
-    col_saldo = "saldo atual"
-    col_tipo = "tipo saldo"
+    # tenta localizar colunas necessárias
+    col_mascara = localizar_coluna(df, ["mascara"])
+    col_desc = localizar_coluna(df, ["descricao", "conta", "nome"])
+    col_saldo = localizar_coluna(df, ["saldo"])
+    col_tipo = localizar_coluna(df, ["tipo", "natureza"])
 
-    # (opcional para depuração)
-    # st.write("Colunas detectadas:", df.columns.tolist())
+    colunas_necessarias = {
+        "Máscara": col_mascara,
+        "Descrição": col_desc,
+        "Saldo": col_saldo,
+        "Tipo de Saldo": col_tipo
+    }
 
-    # --- 1️⃣ Reconstrução da máscara ---
+    faltando = [k for k, v in colunas_necessarias.items() if v is None]
+
+    if faltando:
+        st.error(
+            "❌ Não foi possível identificar as seguintes colunas no arquivo:\n\n"
+            + ", ".join(faltando)
+        )
+        st.stop()
+
+    # -----------------------------
+    # 1️⃣ Reconstrução da máscara
+    # -----------------------------
     ultima = None
     completas = []
 
     for _, row in df.iterrows():
-        if pd.notna(row.get(col_mascara)):
+        if pd.notna(row[col_mascara]):
             ultima = str(row[col_mascara]).strip()
         completas.append(ultima)
 
-    df["mascara_completa"] = completas
+    df["Mascara_Completa"] = completas
 
-    # --- 2️⃣ Identificação do grupo (7 ou 8) ---
-    df["grupo"] = df["mascara_completa"].str.extract(r"^([78])")
+    # -----------------------------
+    # 2️⃣ Identifica Grupo 7 ou 8
+    # -----------------------------
+    df["Grupo"] = df["Mascara_Completa"].str.extract(r"^([78])")
+    df = df[df["Grupo"].isin(["7", "8"])]
 
-    df = df[df["grupo"].isin(["7", "8"])]
-
-    # --- 3️⃣ Normalização da máscara (família lógica) ---
+    # -----------------------------
+    # 3️⃣ Normaliza máscara (remove o grupo)
+    # -----------------------------
     def normalizar_mascara(m):
-        if not isinstance(m, str):
-            return None
         partes = m.split(".")
-        return ".".join(partes[1:6])  # ignora 7/8 e limita ao nível lógico
+        return ".".join(partes[1:6]) if len(partes) > 1 else m
 
-    df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
+    df["Mascara_Normalizada"] = df["Mascara_Completa"].apply(normalizar_mascara)
 
-    # --- 4️⃣ Valor para comparação ---
-    def valor_comparacao(row):
-        if row["grupo"] == "7" and row[col_tipo] == "D":
+    # -----------------------------
+    # 4️⃣ Calcula valor correto
+    # -----------------------------
+    def calcular_valor(row):
+        if row["Grupo"] == "7" and str(row[col_tipo]).upper().startswith("D"):
             return row[col_saldo]
-        if row["grupo"] == "8" and row[col_tipo] == "C":
+        if row["Grupo"] == "8" and str(row[col_tipo]).upper().startswith("C"):
             return row[col_saldo]
         return 0
 
-    df["valor"] = df.apply(valor_comparacao, axis=1)
+    df["Valor"] = df.apply(calcular_valor, axis=1)
 
-    # --- Considerar apenas linhas de credor (CNPJ no texto) ---
-    df = df[df[col_desc].str.contains(r"\d{11,14}", na=False)]
+    # -----------------------------
+    # 5️⃣ Mantém apenas linhas com CPF/CNPJ
+    # -----------------------------
+    df = df[df[col_desc].astype(str).str.contains(r"\d{11,14}", na=False)]
 
-    # --- 5️⃣ Agrupamento (SOMA automática) ---
+    # -----------------------------
+    # 6️⃣ Agrupamento
+    # -----------------------------
     resumo = (
-        df.groupby(["mascara_normalizada", col_desc, "grupo"])["valor"]
+        df.groupby(["Mascara_Normalizada", col_desc, "Grupo"], as_index=False)["Valor"]
         .sum()
-        .reset_index()
     )
 
-    g7 = resumo[resumo["grupo"] == "7"].rename(columns={"valor": "valor_grupo_7"})
-    g8 = resumo[resumo["grupo"] == "8"].rename(columns={"valor": "valor_grupo_8"})
+    g7 = resumo[resumo["Grupo"] == "7"].rename(columns={"Valor": "Valor_G7"})
+    g8 = resumo[resumo["Grupo"] == "8"].rename(columns={"Valor": "Valor_G8"})
 
-    comparacao = pd.merge(
+    final = pd.merge(
         g7,
         g8,
-        on=["mascara_normalizada", col_desc],
+        on=["Mascara_Normalizada", col_desc],
         how="outer"
     ).fillna(0)
 
-    # --- 6️⃣ Validação ---
-    comparacao["diferenca"] = (
-        comparacao["valor_grupo_7"] - comparacao["valor_grupo_8"]
-    )
-
-    comparacao["status"] = comparacao["diferenca"].apply(
+    final["Diferença"] = final["Valor_G7"] - final["Valor_G8"]
+    final["Status"] = final["Diferença"].apply(
         lambda x: "CORRETO" if abs(x) < 0.01 else "DIVERGENTE"
     )
 
-    corretos = comparacao[comparacao["status"] == "CORRETO"]
-    divergentes = comparacao[comparacao["status"] == "DIVERGENTE"]
+    corretos = final[final["Status"] == "CORRETO"]
+    divergentes = final[final["Status"] == "DIVERGENTE"]
 
-    # --- Exibição ---
+    # -----------------------------
+    # Exibição
+    # -----------------------------
     st.subheader("⚠️ Credores com Divergência")
     st.dataframe(divergentes, use_container_width=True)
 
-    # --- Exportação ---
+    # -----------------------------
+    # Exportação Excel
+    # -----------------------------
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         corretos.to_excel(writer, sheet_name="Credores Corretos", index=False)
