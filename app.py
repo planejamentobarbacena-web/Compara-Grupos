@@ -20,8 +20,13 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
 
-    # 🔹 leitura direta (substitui automaticamente o anterior)
-    df = pd.read_csv(uploaded_file, sep=";", decimal=",")
+    df = pd.read_csv(
+        uploaded_file,
+        sep=";",
+        decimal=",",
+        encoding="latin1",
+        engine="python"
+    )
 
     df.columns = [c.strip() for c in df.columns]
 
@@ -106,3 +111,4 @@ if uploaded_file:
         file_name="resultado_validacao_credores.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
