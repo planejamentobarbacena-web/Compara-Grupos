@@ -28,12 +28,21 @@ if uploaded_file:
         engine="python"
     )
 
-    df.columns = [c.strip() for c in df.columns]
+# normaliza nomes de colunas
+df.columns = (
+    df.columns
+    .str.strip()
+    .str.lower()
+    .str.normalize("NFKD")
+    .str.encode("ascii", errors="ignore")
+    .str.decode("utf-8")
+)
 
-    col_mascara = "Máscara"
-    col_desc = "Descrição"
-    col_saldo = "Saldo atual"
-    col_tipo = "Tipo Saldo"
+col_mascara = "mascara"
+col_desc = "descricao"
+col_saldo = "saldo atual"
+col_tipo = "tipo saldo"
+
 
     # --- 1️⃣ Reconstrução da máscara ---
     ultima = None
@@ -111,4 +120,5 @@ if uploaded_file:
         file_name="resultado_validacao_credores.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
 
