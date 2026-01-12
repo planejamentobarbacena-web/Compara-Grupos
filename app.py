@@ -48,26 +48,24 @@ except UnicodeDecodeError:
     )
 
 # --------------------------------------------------
-# Normalização leve dos nomes (sem quebrar duplicadas)
+# Normalização leve de colunas
 # --------------------------------------------------
-df.columns = (
-    df.columns
-    .str.strip()
-    .str.lower()
-)
-
-st.subheader("🔎 Colunas identificadas no arquivo")
-st.write(list(df.columns))
+df.columns = df.columns.str.strip().str.lower()
 
 # --------------------------------------------------
-# Vinculação explícita de colunas (ANTI-KEYERROR)
+# Mapeamento FIXO de colunas (layout conhecido)
 # --------------------------------------------------
-st.subheader("🧩 Vinculação de Colunas")
+COL_MASCARA = "máscara"
+COL_DESC = "descrição"
+COL_SALDO = "saldo atual"
+COL_TIPO_1 = "tipo saldo"
+COL_TIPO_2 = "tipo saldo.1"
 
-col_mascara = st.selectbox("Coluna da Máscara", df.columns)
-col_desc = st.selectbox("Coluna da Descrição / Credor", df.columns)
-col_saldo = st.selectbox("Coluna do Saldo Atual", df.columns)
-col_tipo = st.selectbox("Coluna do Tipo de Saldo (D/C)", df.columns)
+# escolhe automaticamente a coluna correta de tipo saldo
+if COL_TIPO_2 in df.columns:
+    COL_TIPO = COL_TIPO_2
+else:
+    COL_TIPO = COL_TIPO_1
 
 # --------------------------------------------------
 # Reconstrução da máscara completa
@@ -76,7 +74,7 @@ ultima_mascara = None
 mascaras = []
 
 for _, row in df.iterrows():
-    valor = row[col_mascara]
+    valor = row.get(COL_MASCARA)
     if pd.notna(valor) and str(valor).strip() != "":
         ultima_mascara = str(valor).strip()
     mascaras.append(ultima_mascara)
@@ -90,8 +88,8 @@ df["grupo"] = df["mascara_completa"].str.extract(r"^([78])")
 df = df[df["grupo"].isin(["7", "8"])]
 
 # --------------------------------------------------
-# Normalização da máscara (remove 7 ou 8 e limita nível)
-# Ex: 7.1.2.3.1.04.01 → 1.2.3.1.04.01
+# Normalização da máscara
+# remove 7 ou 8 e limita até nível 6
 # --------------------------------------------------
 def normalizar_mascara(m):
     partes = m.split(".")
@@ -102,40 +100,49 @@ df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
 # --------------------------------------------------
 # Conversão segura do saldo
 # --------------------------------------------------
-df[col_saldo] = (
-    df[col_saldo]
+df[COL_SALDO] = (
+    df[COL_SALDO]
     .astype(str)
     .str.replace(".", "", regex=False)
     .str.replace(",", ".", regex=False)
 )
 
-df[col_saldo] = pd.to_numeric(df[col_saldo], errors="coerce").fillna(0)
+df[COL_SALDO] = pd.to_numeric(df[COL_SALDO], errors="coerce").fillna(0)
 
 # --------------------------------------------------
-# Regra de valor:
+# Regra de valor
 # Grupo 7 → Débito
 # Grupo 8 → Crédito
 # --------------------------------------------------
 def calcular_valor(row):
-    if row["grupo"] == "7" and row[col_tipo].upper().startswith("D"):
-        return row[col_saldo]
-    if row["grupo"] == "8" and row[col_tipo].upper().startswith("C"):
-        return row[col_saldo]
+    tipo = row.get(COL_TIPO)
+
+    if not isinstance(tipo, str):
+        return 0
+
+    tipo = tipo.upper().strip()
+
+    if row["grupo"] == "7" and tipo.startswith("D"):
+        return row[COL_SALDO]
+
+    if row["grupo"] == "8" and tipo.startswith("C"):
+        return row[COL_SALDO]
+
     return 0
 
 df["valor"] = df.apply(calcular_valor, axis=1)
 
 # --------------------------------------------------
-# Considerar apenas linhas com CNPJ/CPF
+# Apenas linhas com CPF/CNPJ
 # --------------------------------------------------
-df = df[df[col_desc].str.contains(r"\d{11,14}", na=False)]
+df = df[df[COL_DESC].str.contains(r"\d{11,14}", na=False)]
 
 # --------------------------------------------------
-# Agrupamento (permite soma de vários níveis)
+# Agrupamento (aceita soma entre níveis)
 # --------------------------------------------------
 resumo = (
     df.groupby(
-        ["mascara_normalizada", col_desc, "grupo"],
+        ["mascara_normalizada", COL_DESC, "grupo"],
         as_index=False
     )["valor"]
     .sum()
@@ -147,7 +154,7 @@ g8 = resumo[resumo["grupo"] == "8"].rename(columns={"valor": "valor_g8"})
 final = pd.merge(
     g7,
     g8,
-    on=["mascara_normalizada", col_desc],
+    on=["mascara_normalizada", COL_DESC],
     how="outer"
 ).fillna(0)
 
