@@ -153,7 +153,7 @@ final = final.rename(columns={
     "mascara_normalizada": "Máscara Delimitada",
     "descrição": "Credor",
     "valor_g7": "Valor - Grupo 7",
-    "valor_g8": "Valor Grupo 8",
+    "valor_g8": "Valor - Grupo 8",
     "diferença": "Diferença",
     "status": "Status"
 })
@@ -184,3 +184,4 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
