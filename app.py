@@ -145,4 +145,26 @@ final["status"] = final["diferença"].apply(
 corretos = final[final["status"] == "CORRETO"]
 divergentes = final[final["status"] == "DIVERGENTE"]
 
-# --------------------------
+# --------------------------------------------------
+# Exibição
+# --------------------------------------------------
+st.subheader("⚠️ Credores com Divergência")
+st.dataframe(divergentes, use_container_width=True)
+
+st.subheader("✅ Credores Corretos")
+st.dataframe(corretos, use_container_width=True)
+
+# --------------------------------------------------
+# Exportação Excel
+# --------------------------------------------------
+output = BytesIO()
+with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    corretos.to_excel(writer, sheet_name="Credores Corretos", index=False)
+    divergentes.to_excel(writer, sheet_name="Credores com Divergência", index=False)
+
+st.download_button(
+    "📥 Baixar resultado em Excel",
+    data=output.getvalue(),
+    file_name="validacao_credores_grupos_7_e_8.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
