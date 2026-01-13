@@ -13,7 +13,7 @@ st.set_page_config(
 st.title("📊 Validação de Credores – Grupos 7 e 8")
 st.caption(
     "Comparação automática entre CONTROLES DEVEDORES (Grupo 7) "
-    "e CONTROLES CREDORES – EXECUÇÃO (Grupo 8)."
+    "e CONTROLES CREDORES (Grupo 8)."
 )
 
 # --------------------------------------------------
@@ -172,4 +172,5 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
 
