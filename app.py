@@ -148,6 +148,8 @@ final = pd.merge(
     how="outer"
 ).fillna(0)
 
+final = final.drop(columns=["grupo_x", "grupo_y"], errors="ignore")
+
 # --------------------------------------------------
 # Validação
 # --------------------------------------------------
@@ -203,3 +205,4 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
