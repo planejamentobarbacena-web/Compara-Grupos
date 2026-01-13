@@ -158,8 +158,25 @@ final = final.rename(columns={
     "status": "Status"
 })
 
-corretos = final[final["Status"] == "CORRETO"]
-divergentes = final[final["Status"] == "DIVERGENTE"]
+corretos = final[final["Status"] == "CORRETO"].copy()
+divergentes = final[final["Status"] == "DIVERGENTE"].copy()
+
+COLS_MOEDA = [
+    "Valor - Grupo 7",
+    "Valor Grupo 8",
+    "Diferença"
+]
+
+corretos = formatar_moeda(corretos, COLS_MOEDA)
+divergentes = formatar_moeda(divergentes, COLS_MOEDA)
+
+def formatar_moeda(df, colunas):
+    for col in colunas:
+        df[col] = df[col].apply(
+            lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+    return df
+
 
 # --------------------------------------------------
 # Exibição
@@ -184,4 +201,5 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
 
