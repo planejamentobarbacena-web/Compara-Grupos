@@ -12,7 +12,7 @@ st.set_page_config(
 
 st.title("📊 Validação de Credores – Grupos 7 e 8")
 st.caption(
-    "Validação automática entre CONTROLES DEVEDORES (Grupo 7) "
+    "Comparação automática entre CONTROLES DEVEDORES (Grupo 7) "
     "e CONTROLES CREDORES – EXECUÇÃO (Grupo 8)."
 )
 
@@ -28,77 +28,55 @@ if not uploaded_file:
     st.stop()
 
 # --------------------------------------------------
-# Leitura segura do CSV
+# Leitura do CSV (robusta)
 # --------------------------------------------------
 try:
-    df = pd.read_csv(
-        uploaded_file,
-        sep=";",
-        decimal=",",
-        encoding="utf-8",
-        engine="python"
-    )
+    df = pd.read_csv(uploaded_file, sep=";", decimal=",", encoding="utf-8", engine="python")
 except UnicodeDecodeError:
-    df = pd.read_csv(
-        uploaded_file,
-        sep=";",
-        decimal=",",
-        encoding="latin1",
-        engine="python"
-    )
+    df = pd.read_csv(uploaded_file, sep=";", decimal=",", encoding="latin1", engine="python")
 
-# --------------------------------------------------
-# Normalização leve de colunas
-# --------------------------------------------------
 df.columns = df.columns.str.strip().str.lower()
 
 # --------------------------------------------------
-# Mapeamento FIXO de colunas (layout conhecido)
+# Mapeamento fixo de colunas (layout conhecido)
 # --------------------------------------------------
 COL_MASCARA = "máscara"
 COL_DESC = "descrição"
 COL_SALDO = "saldo atual"
-COL_TIPO_1 = "tipo saldo"
-COL_TIPO_2 = "tipo saldo.1"
-
-# escolhe automaticamente a coluna correta de tipo saldo
-if COL_TIPO_2 in df.columns:
-    COL_TIPO = COL_TIPO_2
-else:
-    COL_TIPO = COL_TIPO_1
+COL_TIPO = "tipo saldo.1" if "tipo saldo.1" in df.columns else "tipo saldo"
 
 # --------------------------------------------------
 # Reconstrução da máscara completa
 # --------------------------------------------------
-ultima_mascara = None
+ultima = None
 mascaras = []
 
 for _, row in df.iterrows():
-    valor = row.get(COL_MASCARA)
-    if pd.notna(valor) and str(valor).strip() != "":
-        ultima_mascara = str(valor).strip()
-    mascaras.append(ultima_mascara)
+    val = row.get(COL_MASCARA)
+    if pd.notna(val) and str(val).strip() != "":
+        ultima = str(val).strip()
+    mascaras.append(ultima)
 
 df["mascara_completa"] = mascaras
 
 # --------------------------------------------------
-# Identificação do Grupo (7 ou 8)
+# Identificação do grupo
 # --------------------------------------------------
 df["grupo"] = df["mascara_completa"].str.extract(r"^([78])")
 df = df[df["grupo"].isin(["7", "8"])]
 
 # --------------------------------------------------
-# Normalização da máscara
-# remove 7 ou 8 e limita até nível 6
+# NORMALIZAÇÃO CORRETA DA MÁSCARA
+# remove grupo (7/8) e o último nível
 # --------------------------------------------------
 def normalizar_mascara(m):
     partes = m.split(".")
-    return ".".join(partes[1:7])
+    return ".".join(partes[1:-1])  # ← REGRA CORRETA
 
 df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
 
 # --------------------------------------------------
-# Conversão segura do saldo
+# Conversão do saldo atual
 # --------------------------------------------------
 df[COL_SALDO] = (
     df[COL_SALDO]
@@ -110,9 +88,7 @@ df[COL_SALDO] = (
 df[COL_SALDO] = pd.to_numeric(df[COL_SALDO], errors="coerce").fillna(0)
 
 # --------------------------------------------------
-# Regra de valor
-# Grupo 7 → Débito
-# Grupo 8 → Crédito
+# Regra de valor (somente saldo atual + tipo saldo)
 # --------------------------------------------------
 def calcular_valor(row):
     tipo = row.get(COL_TIPO)
@@ -133,12 +109,12 @@ def calcular_valor(row):
 df["valor"] = df.apply(calcular_valor, axis=1)
 
 # --------------------------------------------------
-# Apenas linhas com CPF/CNPJ
+# Apenas linhas de credores (CPF / CNPJ)
 # --------------------------------------------------
 df = df[df[COL_DESC].str.contains(r"\d{11,14}", na=False)]
 
 # --------------------------------------------------
-# Agrupamento (aceita soma entre níveis)
+# Agrupamento (permite soma automática)
 # --------------------------------------------------
 resumo = (
     df.groupby(
