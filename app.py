@@ -17,11 +17,10 @@ st.caption(
 )
 
 # --------------------------------------------------
-# Upload (mensagem em português)
+# Upload
 # --------------------------------------------------
 uploaded_file = st.file_uploader(
-    "📤 Arraste e solte o arquivo CSV aqui ou clique para selecionar\n"
-    "📌 Tamanho máximo: 200 MB",
+    "📤 Arraste e solte o arquivo CSV aqui ou clique para selecionar",
     type=["csv"]
 )
 
@@ -45,6 +44,19 @@ COL_MASCARA = "máscara"
 COL_DESC = "descrição"
 COL_SALDO = "saldo atual"
 COL_TIPO = "tipo saldo.1" if "tipo saldo.1" in df.columns else "tipo saldo"
+
+# --------------------------------------------------
+# Função de formatação monetária (DEFINIDA ANTES DO USO)
+# --------------------------------------------------
+def formatar_moeda(df, colunas):
+    for col in colunas:
+        df[col] = df[col].apply(
+            lambda x: f"R$ {x:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+    return df
 
 # --------------------------------------------------
 # Reconstrução da máscara completa
@@ -147,8 +159,6 @@ final["status"] = final["diferença"].apply(
 # --------------------------------------------------
 # Ajuste final de colunas (exibição)
 # --------------------------------------------------
-final = final.drop(columns=["grupo_x", "grupo_y"], errors="ignore")
-
 final = final.rename(columns={
     "mascara_normalizada": "Máscara Delimitada",
     "descrição": "Credor",
@@ -163,20 +173,12 @@ divergentes = final[final["Status"] == "DIVERGENTE"].copy()
 
 COLS_MOEDA = [
     "Valor - Grupo 7",
-    "Valor Grupo 8",
+    "Valor - Grupo 8",
     "Diferença"
 ]
 
 corretos = formatar_moeda(corretos, COLS_MOEDA)
 divergentes = formatar_moeda(divergentes, COLS_MOEDA)
-
-def formatar_moeda(df, colunas):
-    for col in colunas:
-        df[col] = df[col].apply(
-            lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        )
-    return df
-
 
 # --------------------------------------------------
 # Exibição
@@ -201,5 +203,3 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-
-
