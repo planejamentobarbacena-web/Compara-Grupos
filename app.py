@@ -28,48 +28,56 @@ if not uploaded_file:
     st.stop()
 
 # --------------------------------------------------
-# Leitura robusta do CSV
+# Leitura do CSV (TUDO como texto)
 # --------------------------------------------------
 try:
-    df = pd.read_csv(uploaded_file, sep=";", decimal=",", encoding="utf-8", engine="python")
+    df = pd.read_csv(
+        uploaded_file,
+        sep=";",
+        encoding="utf-8",
+        engine="python",
+        dtype=str
+    )
 except UnicodeDecodeError:
-    df = pd.read_csv(uploaded_file, sep=";", decimal=",", encoding="latin1", engine="python")
+    df = pd.read_csv(
+        uploaded_file,
+        sep=";",
+        encoding="latin1",
+        engine="python",
+        dtype=str
+    )
 
 df.columns = df.columns.str.strip().str.lower()
 
 # --------------------------------------------------
-# Validação estrutural do arquivo
+# Mapeamento fixo de colunas
 # --------------------------------------------------
 COL_MASCARA = "máscara"
 COL_DESC = "descrição"
-COL_SALDO = "saldo atual"
-COL_TIPO = "tipo saldo.1"   # coluna I (regra fixa)
-
-colunas_obrigatorias = [COL_MASCARA, COL_DESC, COL_SALDO, COL_TIPO]
-
-faltantes = [c for c in colunas_obrigatorias if c not in df.columns]
-
-if faltantes:
-    st.error(
-        "❌ O arquivo não possui a estrutura esperada.\n\n"
-        f"Colunas ausentes: {', '.join(faltantes)}\n\n"
-        "⚠️ Certifique-se de que o CSV contém DUAS colunas 'Tipo Saldo', "
-        "sendo a segunda correspondente ao Saldo Atual (coluna I)."
-    )
-    st.stop()
+COL_SALDO = "saldo atual"        # coluna H
+COL_TIPO = "tipo saldo.1" if "tipo saldo.1" in df.columns else "tipo saldo"  # coluna I
 
 # --------------------------------------------------
-# Função de formatação monetária
+# Função segura para converter valores monetários
 # --------------------------------------------------
-def formatar_moeda(df, colunas):
-    for col in colunas:
-        df[col] = df[col].apply(
-            lambda x: f"R$ {x:,.2f}"
-            .replace(",", "X")
-            .replace(".", ",")
-            .replace("X", ".")
-        )
-    return df
+def converter_valor(valor):
+    if valor is None:
+        return 0.0
+
+    valor = str(valor).strip()
+
+    if valor == "":
+        return 0.0
+
+    # remove milhar
+    valor = valor.replace(".", "")
+    # ajusta decimal
+    valor = valor.replace(",", ".")
+
+    try:
+        return float(valor)
+    except ValueError:
+        return 0.0
 
 # --------------------------------------------------
 # Reconstrução da máscara completa
@@ -78,64 +86,63 @@ ultima = None
 mascaras = []
 
 for _, row in df.iterrows():
-    val = row[COL_MASCARA]
-    if pd.notna(val) and str(val).strip():
+    val = row.get(COL_MASCARA)
+    if pd.notna(val) and str(val).strip() != "":
         ultima = str(val).strip()
     mascaras.append(ultima)
 
 df["mascara_completa"] = mascaras
 
 # --------------------------------------------------
-# Identificação do grupo
+# Identificação do grupo (7 ou 8)
 # --------------------------------------------------
 df["grupo"] = df["mascara_completa"].str.extract(r"^([78])")
 df = df[df["grupo"].isin(["7", "8"])]
 
 # --------------------------------------------------
 # Normalização da máscara
-# remove 7/8 e mantém até o nível 5
+# - remove 7 ou 8
+# - mantém até 5 níveis
 # --------------------------------------------------
 def normalizar_mascara(m):
-    partes = m.split(".")[1:]  # remove grupo
+    if not isinstance(m, str):
+        return ""
+    partes = m.split(".")
+    partes = partes[1:]  # remove grupo
     return ".".join(partes[:5])
 
 df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
 
 # --------------------------------------------------
-# Conversão do saldo atual
+# Conversão correta do saldo atual
 # --------------------------------------------------
-df[COL_SALDO] = (
-    df[COL_SALDO]
-    .astype(str)
-    .str.replace(".", "", regex=False)
-    .str.replace(",", ".", regex=False)
-)
-
-df[COL_SALDO] = pd.to_numeric(df[COL_SALDO], errors="coerce").fillna(0)
+df["saldo_num"] = df[COL_SALDO].apply(converter_valor)
 
 # --------------------------------------------------
-# Regra de valor (EXPLÍCITA E SEGURA)
+# Regra de valor por grupo
 # --------------------------------------------------
 def calcular_valor(row):
-    tipo = row[COL_TIPO]
+    tipo = row.get(COL_TIPO)
 
     if not isinstance(tipo, str):
-        return 0
+        return 0.0
 
     tipo = tipo.strip().upper()
 
-    if row["grupo"] == "7" and tipo == "D":
-        return row[COL_SALDO]
+    # Grupo 7 → somente D
+    if row["grupo"] == "7" and tipo.startswith("D"):
+        return row["saldo_num"]
 
-    if row["grupo"] == "8" and tipo == "C":
-        return row[COL_SALDO]
+    # Grupo 8 → somente C
+    if row["grupo"] == "8" and tipo.startswith("C"):
+        return row["saldo_num"]
 
-    return 0
+    return 0.0
 
 df["valor"] = df.apply(calcular_valor, axis=1)
 
 # --------------------------------------------------
-# Apenas linhas com CPF/CNPJ
+# Apenas credores com CPF/CNPJ
 # --------------------------------------------------
 df = df[df[COL_DESC].str.contains(r"\d{11,14}", na=False)]
 
@@ -173,22 +180,38 @@ final["Status"] = final["Diferença"].apply(
 # --------------------------------------------------
 final = final.rename(columns={
     "mascara_normalizada": "Máscara Delimitada",
-    "descrição": "Credor",
+    COL_DESC: "Credor",
     "valor_g7": "Valor - Grupo 7",
     "valor_g8": "Valor - Grupo 8"
 })
 
 final = final[
-    ["Máscara Delimitada", "Credor", "Valor - Grupo 7", "Valor - Grupo 8", "Diferença", "Status"]
+    [
+        "Máscara Delimitada",
+        "Credor",
+        "Valor - Grupo 7",
+        "Valor - Grupo 8",
+        "Diferença",
+        "Status"
+    ]
 ]
 
-corretos = final[final["Status"] == "CORRETO"].copy()
-divergentes = final[final["Status"] == "DIVERGENTE"].copy()
+# --------------------------------------------------
+# Formatação monetária
+# --------------------------------------------------
+def formatar_moeda(col):
+    return col.apply(
+        lambda x: f"R$ {x:,.2f}"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
 
-COLS_MOEDA = ["Valor - Grupo 7", "Valor - Grupo 8", "Diferença"]
+for c in ["Valor - Grupo 7", "Valor - Grupo 8", "Diferença"]:
+    final[c] = formatar_moeda(final[c])
 
-corretos = formatar_moeda(corretos, COLS_MOEDA)
-divergentes = formatar_moeda(divergentes, COLS_MOEDA)
+corretos = final[final["Status"] == "CORRETO"]
+divergentes = final[final["Status"] == "DIVERGENTE"]
 
 # --------------------------------------------------
 # Exibição
