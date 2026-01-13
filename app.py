@@ -71,7 +71,11 @@ df = df[df["grupo"].isin(["7", "8"])]
 # --------------------------------------------------
 def normalizar_mascara(m):
     partes = m.split(".")
-    return ".".join(partes[1:-1])
+    # remove o grupo (7 ou 8)
+    partes = partes[1:]
+
+    # mantém SEMPRE até o nível 5
+    return ".".join(partes[:5])
 
 df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
 
@@ -168,3 +172,4 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
