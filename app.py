@@ -38,15 +38,28 @@ except UnicodeDecodeError:
 df.columns = df.columns.str.strip().str.lower()
 
 # --------------------------------------------------
-# Mapeamento fixo de colunas
+# Validação estrutural do arquivo
 # --------------------------------------------------
 COL_MASCARA = "máscara"
 COL_DESC = "descrição"
 COL_SALDO = "saldo atual"
-COL_TIPO = "tipo saldo.1" if "tipo saldo.1" in df.columns else "tipo saldo"
+COL_TIPO = "tipo saldo.1"   # coluna I (regra fixa)
+
+colunas_obrigatorias = [COL_MASCARA, COL_DESC, COL_SALDO, COL_TIPO]
+
+faltantes = [c for c in colunas_obrigatorias if c not in df.columns]
+
+if faltantes:
+    st.error(
+        "❌ O arquivo não possui a estrutura esperada.\n\n"
+        f"Colunas ausentes: {', '.join(faltantes)}\n\n"
+        "⚠️ Certifique-se de que o CSV contém DUAS colunas 'Tipo Saldo', "
+        "sendo a segunda correspondente ao Saldo Atual (coluna I)."
+    )
+    st.stop()
 
 # --------------------------------------------------
-# Função de formatação monetária (DEFINIDA ANTES DO USO)
+# Função de formatação monetária
 # --------------------------------------------------
 def formatar_moeda(df, colunas):
     for col in colunas:
@@ -65,8 +78,8 @@ ultima = None
 mascaras = []
 
 for _, row in df.iterrows():
-    val = row.get(COL_MASCARA)
-    if pd.notna(val) and str(val).strip() != "":
+    val = row[COL_MASCARA]
+    if pd.notna(val) and str(val).strip():
         ultima = str(val).strip()
     mascaras.append(ultima)
 
@@ -80,11 +93,10 @@ df = df[df["grupo"].isin(["7", "8"])]
 
 # --------------------------------------------------
 # Normalização da máscara
-# remove 7/8 e mantém até o nível correto
+# remove 7/8 e mantém até o nível 5
 # --------------------------------------------------
 def normalizar_mascara(m):
-    partes = m.split(".")
-    partes = partes[1:]  # remove grupo
+    partes = m.split(".")[1:]  # remove grupo
     return ".".join(partes[:5])
 
 df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
@@ -102,20 +114,20 @@ df[COL_SALDO] = (
 df[COL_SALDO] = pd.to_numeric(df[COL_SALDO], errors="coerce").fillna(0)
 
 # --------------------------------------------------
-# Regra de valor (Saldo Atual + Tipo Saldo)
+# Regra de valor (EXPLÍCITA E SEGURA)
 # --------------------------------------------------
 def calcular_valor(row):
-    tipo = row.get(COL_TIPO)
+    tipo = row[COL_TIPO]
 
     if not isinstance(tipo, str):
         return 0
 
-    tipo = tipo.upper().strip()
+    tipo = tipo.strip().upper()
 
-    if row["grupo"] == "7" and tipo.startswith("D"):
+    if row["grupo"] == "7" and tipo == "D":
         return row[COL_SALDO]
 
-    if row["grupo"] == "8" and tipo.startswith("C"):
+    if row["grupo"] == "8" and tipo == "C":
         return row[COL_SALDO]
 
     return 0
@@ -148,36 +160,32 @@ final = pd.merge(
     how="outer"
 ).fillna(0)
 
-final = final.drop(columns=["grupo_x", "grupo_y"], errors="ignore")
-
 # --------------------------------------------------
 # Validação
 # --------------------------------------------------
-final["diferença"] = final["valor_g7"] - final["valor_g8"]
-final["status"] = final["diferença"].apply(
+final["Diferença"] = final["valor_g7"] - final["valor_g8"]
+final["Status"] = final["Diferença"].apply(
     lambda x: "CORRETO" if abs(x) < 0.01 else "DIVERGENTE"
 )
 
 # --------------------------------------------------
-# Ajuste final de colunas (exibição)
+# Ajuste final de colunas
 # --------------------------------------------------
 final = final.rename(columns={
     "mascara_normalizada": "Máscara Delimitada",
     "descrição": "Credor",
     "valor_g7": "Valor - Grupo 7",
-    "valor_g8": "Valor - Grupo 8",
-    "diferença": "Diferença",
-    "status": "Status"
+    "valor_g8": "Valor - Grupo 8"
 })
+
+final = final[
+    ["Máscara Delimitada", "Credor", "Valor - Grupo 7", "Valor - Grupo 8", "Diferença", "Status"]
+]
 
 corretos = final[final["Status"] == "CORRETO"].copy()
 divergentes = final[final["Status"] == "DIVERGENTE"].copy()
 
-COLS_MOEDA = [
-    "Valor - Grupo 7",
-    "Valor - Grupo 8",
-    "Diferença"
-]
+COLS_MOEDA = ["Valor - Grupo 7", "Valor - Grupo 8", "Diferença"]
 
 corretos = formatar_moeda(corretos, COLS_MOEDA)
 divergentes = formatar_moeda(divergentes, COLS_MOEDA)
@@ -205,4 +213,3 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-
