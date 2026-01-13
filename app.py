@@ -28,7 +28,7 @@ if not uploaded_file:
     st.stop()
 
 # --------------------------------------------------
-# Leitura do CSV (robusta)
+# Leitura robusta do CSV
 # --------------------------------------------------
 try:
     df = pd.read_csv(uploaded_file, sep=";", decimal=",", encoding="utf-8", engine="python")
@@ -38,7 +38,7 @@ except UnicodeDecodeError:
 df.columns = df.columns.str.strip().str.lower()
 
 # --------------------------------------------------
-# Mapeamento fixo de colunas (layout conhecido)
+# Mapeamento fixo de colunas
 # --------------------------------------------------
 COL_MASCARA = "máscara"
 COL_DESC = "descrição"
@@ -67,11 +67,11 @@ df = df[df["grupo"].isin(["7", "8"])]
 
 # --------------------------------------------------
 # NORMALIZAÇÃO CORRETA DA MÁSCARA
-# remove grupo (7/8) e o último nível
+# remove 7/8 e remove SOMENTE o último nível
 # --------------------------------------------------
 def normalizar_mascara(m):
     partes = m.split(".")
-    return ".".join(partes[1:-1])  # ← REGRA CORRETA
+    return ".".join(partes[1:-1])
 
 df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
 
@@ -88,7 +88,7 @@ df[COL_SALDO] = (
 df[COL_SALDO] = pd.to_numeric(df[COL_SALDO], errors="coerce").fillna(0)
 
 # --------------------------------------------------
-# Regra de valor (somente saldo atual + tipo saldo)
+# Regra de valor (somente Saldo Atual + Tipo Saldo)
 # --------------------------------------------------
 def calcular_valor(row):
     tipo = row.get(COL_TIPO)
@@ -109,12 +109,12 @@ def calcular_valor(row):
 df["valor"] = df.apply(calcular_valor, axis=1)
 
 # --------------------------------------------------
-# Apenas linhas de credores (CPF / CNPJ)
+# Apenas linhas com CPF/CNPJ
 # --------------------------------------------------
 df = df[df[COL_DESC].str.contains(r"\d{11,14}", na=False)]
 
 # --------------------------------------------------
-# Agrupamento (permite soma automática)
+# Agrupamento
 # --------------------------------------------------
 resumo = (
     df.groupby(
@@ -145,26 +145,4 @@ final["status"] = final["diferença"].apply(
 corretos = final[final["status"] == "CORRETO"]
 divergentes = final[final["status"] == "DIVERGENTE"]
 
-# --------------------------------------------------
-# Exibição
-# --------------------------------------------------
-st.subheader("⚠️ Credores com Divergência")
-st.dataframe(divergentes, use_container_width=True)
-
-st.subheader("✅ Credores Corretos")
-st.dataframe(corretos, use_container_width=True)
-
-# --------------------------------------------------
-# Exportação Excel
-# --------------------------------------------------
-output = BytesIO()
-with pd.ExcelWriter(output, engine="openpyxl") as writer:
-    corretos.to_excel(writer, sheet_name="Credores Corretos", index=False)
-    divergentes.to_excel(writer, sheet_name="Credores com Divergência", index=False)
-
-st.download_button(
-    "📥 Baixar resultado em Excel",
-    data=output.getvalue(),
-    file_name="validacao_credores_grupos_7_e_8.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+# --------------------------
