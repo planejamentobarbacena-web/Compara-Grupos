@@ -17,10 +17,11 @@ st.caption(
 )
 
 # --------------------------------------------------
-# Upload
+# Upload (mensagem em português)
 # --------------------------------------------------
 uploaded_file = st.file_uploader(
-    "📤 Envie o arquivo CSV do balancete",
+    "📤 Arraste e solte o arquivo CSV aqui ou clique para selecionar\n"
+    "📌 Tamanho máximo: 200 MB",
     type=["csv"]
 )
 
@@ -66,15 +67,12 @@ df["grupo"] = df["mascara_completa"].str.extract(r"^([78])")
 df = df[df["grupo"].isin(["7", "8"])]
 
 # --------------------------------------------------
-# NORMALIZAÇÃO CORRETA DA MÁSCARA
-# remove 7/8 e remove SOMENTE o último nível
+# Normalização da máscara
+# remove 7/8 e mantém até o nível correto
 # --------------------------------------------------
 def normalizar_mascara(m):
     partes = m.split(".")
-    # remove o grupo (7 ou 8)
-    partes = partes[1:]
-
-    # mantém SEMPRE até o nível 5
+    partes = partes[1:]  # remove grupo
     return ".".join(partes[:5])
 
 df["mascara_normalizada"] = df["mascara_completa"].apply(normalizar_mascara)
@@ -92,7 +90,7 @@ df[COL_SALDO] = (
 df[COL_SALDO] = pd.to_numeric(df[COL_SALDO], errors="coerce").fillna(0)
 
 # --------------------------------------------------
-# Regra de valor (somente Saldo Atual + Tipo Saldo)
+# Regra de valor (Saldo Atual + Tipo Saldo)
 # --------------------------------------------------
 def calcular_valor(row):
     tipo = row.get(COL_TIPO)
@@ -146,8 +144,22 @@ final["status"] = final["diferença"].apply(
     lambda x: "CORRETO" if abs(x) < 0.01 else "DIVERGENTE"
 )
 
-corretos = final[final["status"] == "CORRETO"]
-divergentes = final[final["status"] == "DIVERGENTE"]
+# --------------------------------------------------
+# Ajuste final de colunas (exibição)
+# --------------------------------------------------
+final = final.drop(columns=["grupo_x", "grupo_y"], errors="ignore")
+
+final = final.rename(columns={
+    "mascara_normalizada": "Máscara Delimitada",
+    "descrição": "Credor",
+    "valor_g7": "Valor - Grupo 7",
+    "valor_g8": "Valor Grupo 8",
+    "diferença": "Diferença",
+    "status": "Status"
+})
+
+corretos = final[final["Status"] == "CORRETO"]
+divergentes = final[final["Status"] == "DIVERGENTE"]
 
 # --------------------------------------------------
 # Exibição
@@ -172,5 +184,3 @@ st.download_button(
     file_name="validacao_credores_grupos_7_e_8.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-
-
